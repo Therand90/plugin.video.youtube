@@ -100,7 +100,7 @@ def _play_stream(provider, context):
     incognito = params.get(INCOGNITO, False) or preview
     screensaver = params.get(SCREENSAVER, False)
     if preview:
-        logging.debug('Therand preview mode: direct muxed playback')
+        logging.debug('Therand preview mode: strict progressive playback')
 
     audio_only = False
     is_external = (
@@ -174,6 +174,7 @@ def _play_stream(provider, context):
             ask_for_quality=ask_for_quality,
             audio_only=audio_only,
             use_mpd=use_mpd,
+            direct_muxed=preview,
         )
         if stream is None:
             if preview:
@@ -197,7 +198,16 @@ def _play_stream(provider, context):
                                             v3,
                                             video_id)
 
-    metadata = stream.get('meta', {})
+    if preview:
+        # Tiny inline previews do not need subtitle discovery. In particular,
+        # timedtext 429 responses can stall InputStream long after navigation.
+        stream = dict(stream)
+        metadata = dict(stream.get('meta') or {})
+        metadata.pop('subtitles', None)
+        stream['meta'] = metadata
+    else:
+        metadata = stream.get('meta', {})
+
     if is_external:
         url = urlunsplit((
             'http',
@@ -395,7 +405,8 @@ def _select_stream(context,
                    stream_data_list,
                    ask_for_quality,
                    audio_only,
-                   use_mpd=True):
+                   use_mpd=True,
+                   direct_muxed=False):
     settings = context.get_settings()
     if settings.use_isa():
         isa_capabilities = context.inputstream_adaptive_capabilities()
@@ -411,6 +422,17 @@ def _select_stream(context,
         logging.debug('Audio only')
         stream_list = [item for item in stream_data_list
                        if 'video' not in item]
+    elif direct_muxed:
+        # The preview contract is intentionally strict: select one progressive
+        # URL containing both tracks. Do not silently fall back to adaptive HLS,
+        # whose manifest/proxy hand-off caused late audio and stalled streams.
+        logging.debug('Direct muxed streams only')
+        stream_list = [
+            item for item in stream_data_list
+            if (not item.get('adaptive')
+                and item.get('video')
+                and item.get('audio'))
+        ]
     else:
         stream_list = [
             item for item in stream_data_list
