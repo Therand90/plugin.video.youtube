@@ -17,7 +17,13 @@ from collections import defaultdict
 from ..helper import utils, v3
 from ..youtube_exceptions import YouTubeException
 from ...kodion import logging
-from ...kodion.compatibility import string_type, urlencode, urlunsplit, xbmc
+from ...kodion.compatibility import (
+    string_type,
+    urlencode,
+    urlunsplit,
+    xbmc,
+    xbmcgui,
+)
 from ...kodion.constants import (
     BUSY_FLAG,
     CHANNEL_ID,
@@ -41,6 +47,7 @@ from ...kodion.constants import (
     SCREENSAVER,
     SERVER_WAKEUP,
     THERAND_PREVIEW,
+    THERAND_TOKEN,
     TRAKT_PAUSE_FLAG,
     VIDEO_ID,
     VIDEO_IDS,
@@ -51,19 +58,45 @@ from ...kodion.utils.datetime import datetime_to_since
 from ...kodion.utils.redact import redact_params
 
 
+_THERAND_HOME_ID = 10000
+_THERAND_RESOLVER_PROPERTIES = {
+    'started': 'TherandInset.ResolverStarted',
+    'resolved': 'TherandInset.ResolverResolved',
+    'failed': 'TherandInset.ResolverFailed',
+}
+
+
+def _therand_resolver_signal(token, state):
+    if not token:
+        return
+    try:
+        xbmcgui.Window(_THERAND_HOME_ID).setProperty(
+            _THERAND_RESOLVER_PROPERTIES[state], token
+        )
+    except Exception:
+        logging.exception('Failed to publish Therand resolver state')
+
+
 def _play_stream(provider, context):
     ui = context.get_ui()
     params = context.get_params()
+    preview = params.get(THERAND_PREVIEW, False)
+    resolver_token = params.get(THERAND_TOKEN, '') if preview else ''
+    if preview:
+        _therand_resolver_signal(resolver_token, 'started')
+
     video_id = params.get(VIDEO_ID)
     if not video_id:
-        ui.show_notification(context.localize('error.no_streams_found'))
+        if preview:
+            _therand_resolver_signal(resolver_token, 'failed')
+        else:
+            ui.show_notification(context.localize('error.no_streams_found'))
         logging.error('No video_id provided')
         return False
 
     client = provider.get_client(context)
     settings = context.get_settings()
 
-    preview = params.get(THERAND_PREVIEW, False)
     incognito = params.get(INCOGNITO, False) or preview
     screensaver = params.get(SCREENSAVER, False)
     if preview:
@@ -108,7 +141,10 @@ def _play_stream(provider, context):
             )
         except YouTubeException as exc:
             logging.exception('Error')
-            ui.show_notification(message=exc.get_message())
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
+            else:
+                ui.show_notification(message=exc.get_message())
             if not preview and settings.default_player_fallback():
                 return False, {
                     provider.FALLBACK: context.create_uri(
@@ -125,7 +161,10 @@ def _play_stream(provider, context):
             return False
 
         if not streams:
-            ui.show_notification(context.localize('error.no_streams_found'))
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
+            else:
+                ui.show_notification(context.localize('error.no_streams_found'))
             logging.error('No streams found')
             return False
 
@@ -137,11 +176,16 @@ def _play_stream(provider, context):
             use_mpd=use_mpd,
         )
         if stream is None:
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
             return False
 
     video_type = stream.get('video')
     if video_type and video_type.get('rtmpe'):
-        ui.show_notification(context.localize('error.rtmpe_not_supported'))
+        if preview:
+            _therand_resolver_signal(resolver_token, 'failed')
+        else:
+            ui.show_notification(context.localize('error.rtmpe_not_supported'))
         logging.error('RTMPE streams are not supported')
         return False
 
@@ -217,6 +261,8 @@ def _play_stream(provider, context):
                     log_redact=True)
     ui.set_property(TRAKT_PAUSE_FLAG, raw=True)
     context.send_notification(PLAYBACK_INIT, playback_data)
+    if preview:
+        _therand_resolver_signal(resolver_token, 'resolved')
     return media_item
 
 
