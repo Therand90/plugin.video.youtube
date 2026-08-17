@@ -1,3 +1,8 @@
+## v7.4.4+therand.3
+### Fixed
+- Enforce progressive muxed streams for Therand AutoTrailer previews
+- Skip preview subtitles to avoid timedtext throttling and startup stalls
+
 ## v7.4.4+therand.2
 ### Changed
 - Add a per-launch resolver handshake for Therand AutoTrailer previews
