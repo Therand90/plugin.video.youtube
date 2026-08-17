@@ -1,3 +1,8 @@
+## v7.4.4+therand.2
+### Changed
+- Add a per-launch resolver handshake for Therand AutoTrailer previews
+- Suppress preview-only error popups and report failures to AutoTrailer
+
 ## v7.4.4+therand.1
 ### Changed
 - Add an isolated direct-playback mode for Therand AutoTrailer previews
