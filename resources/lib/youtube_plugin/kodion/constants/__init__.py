@@ -190,6 +190,7 @@ SCREENSAVER = 'screensaver'
 SEEK = 'seek'
 START = 'start'
 THERAND_PREVIEW = 'therand_preview'
+THERAND_TOKEN = 'therand_token'
 VIDEO_IDS = 'video_ids'
 
 INHERITED_PARAMS = frozenset((
@@ -353,6 +354,7 @@ __all__ = (
     'SEEK',
     'START',
     'THERAND_PREVIEW',
+    'THERAND_TOKEN',
     'VIDEO_IDS',
 
     'INHERITED_PARAMS',
