@@ -64,6 +64,7 @@ from ..constants import (
     START,
     SUBSCRIPTION_ID,
     THERAND_PREVIEW,
+    THERAND_TOKEN,
     VIDEO_ID,
     VIDEO_IDS,
     WINDOW_CACHE,
@@ -173,6 +174,7 @@ class AbstractContext(object):
         'reload_path',
         'search_type',
         SUBSCRIPTION_ID,
+        THERAND_TOKEN,
         'uri',
         'videoid',  # deprecated
         VIDEO_ID,
