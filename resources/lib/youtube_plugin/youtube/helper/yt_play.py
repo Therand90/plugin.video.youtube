@@ -40,6 +40,7 @@ from ...kodion.constants import (
     PLAY_USING,
     SCREENSAVER,
     SERVER_WAKEUP,
+    THERAND_PREVIEW,
     TRAKT_PAUSE_FLAG,
     VIDEO_ID,
     VIDEO_IDS,
@@ -62,31 +63,38 @@ def _play_stream(provider, context):
     client = provider.get_client(context)
     settings = context.get_settings()
 
-    incognito = params.get(INCOGNITO, False)
+    preview = params.get(THERAND_PREVIEW, False)
+    incognito = params.get(INCOGNITO, False) or preview
     screensaver = params.get(SCREENSAVER, False)
+    if preview:
+        logging.debug('Therand preview mode: direct muxed playback')
 
     audio_only = False
-    is_external = ui.get_property(PLAY_USING, as_bool=True)
-    if ((is_external and settings.alternative_player_web_urls())
-            or settings.default_player_web_urls()):
+    is_external = (
+        not preview and ui.get_property(PLAY_USING, as_bool=True)
+    )
+    if (not preview
+            and ((is_external and settings.alternative_player_web_urls())
+                 or settings.default_player_web_urls())):
         stream = {
             'url': 'https://youtu.be/{0}'.format(video_id),
         }
         yt_item = None
     else:
         ask_for_quality = ui.pop_property(PLAY_PROMPT_QUALITY, as_bool=True)
-        if screensaver:
+        if screensaver or preview:
             ask_for_quality = False
         elif ask_for_quality is None:
             ask_for_quality = settings.ask_for_video_quality()
 
         audio_only = ui.pop_property(PLAY_FORCE_AUDIO, as_bool=True)
-        if screensaver:
+        if screensaver or preview:
             audio_only = False
         elif audio_only is None:
             audio_only = not ask_for_quality and settings.audio_only()
 
-        use_mpd = ((not is_external or settings.alternative_player_mpd())
+        use_mpd = (not preview
+                   and (not is_external or settings.alternative_player_mpd())
                    and settings.use_mpd_videos()
                    and context.ipc_exec(SERVER_WAKEUP, timeout=5))
 
@@ -101,7 +109,7 @@ def _play_stream(provider, context):
         except YouTubeException as exc:
             logging.exception('Error')
             ui.show_notification(message=exc.get_message())
-            if settings.default_player_fallback():
+            if not preview and settings.default_player_fallback():
                 return False, {
                     provider.FALLBACK: context.create_uri(
                         PATHS.PLAY,
@@ -137,7 +145,8 @@ def _play_stream(provider, context):
         logging.error('RTMPE streams are not supported')
         return False
 
-    if not screensaver and settings.get_bool(settings.PLAY_SUGGESTED):
+    if (not (screensaver or preview)
+            and settings.get_bool(settings.PLAY_SUGGESTED)):
         utils.add_related_video_to_playlist(provider,
                                             context,
                                             client,
@@ -161,7 +170,9 @@ def _play_stream(provider, context):
         video_id=video_id,
     )
 
-    use_history = not (screensaver or incognito or stream.get('live'))
+    use_history = not (
+        screensaver or incognito or preview or stream.get('live')
+    )
     use_remote_history = use_history and settings.use_remote_history()
     use_local_history = use_history and settings.use_local_history()
 
@@ -196,7 +207,8 @@ def _play_stream(provider, context):
         'start_time': start_time,
         'end_time': end_time,
         'clip': params.get('clip', False),
-        'refresh_only': screensaver
+        THERAND_PREVIEW: preview,
+        'refresh_only': screensaver or preview
     }
 
     ui.set_property(PLAYER_DATA,

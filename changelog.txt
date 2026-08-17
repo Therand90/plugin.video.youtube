@@ -1,3 +1,8 @@
+## v7.4.4+therand.1
+### Changed
+- Add an isolated direct-playback mode for Therand AutoTrailer previews
+- Keep preview playback out of history, suggestions and container refreshes
+
 ## v7.4.4
 ### Fixed
 - Fix not including FolderPath in current container details #1467

@@ -189,6 +189,7 @@ PLAYLIST_IDS = 'playlist_ids'
 SCREENSAVER = 'screensaver'
 SEEK = 'seek'
 START = 'start'
+THERAND_PREVIEW = 'therand_preview'
 VIDEO_IDS = 'video_ids'
 
 INHERITED_PARAMS = frozenset((
@@ -351,6 +352,7 @@ __all__ = (
     'SCREENSAVER',
     'SEEK',
     'START',
+    'THERAND_PREVIEW',
     'VIDEO_IDS',
 
     'INHERITED_PARAMS',
