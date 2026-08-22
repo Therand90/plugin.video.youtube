@@ -1,0 +1,35 @@
+--- plugin.video.youtube-7.4.4+therand.1.0.3/addon.xml
++++ plugin.video.youtube-7.4.4+therand.1.0.4/addon.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+-<addon id="plugin.video.youtube" name="YouTube" version="7.4.4+therand.1.0.3" provider-name="anxdpanic, bromix, MoojMidge, Therand90">
++<addon id="plugin.video.youtube" name="YouTube" version="7.4.4+therand.1.0.4" provider-name="anxdpanic, bromix, MoojMidge, Therand90">
+@@ -67,7 +67,7 @@
+     incognito = params.get(INCOGNITO, False) or preview
+     screensaver = params.get(SCREENSAVER, False)
+     if preview:
+-        logging.debug('Therand preview mode: direct muxed playback')
++        logging.debug('Therand preview mode')
+@@ -93,19 +93,17 @@
+-        # Targeted transport diagnostic: keep the proven Therand preview
+-        # behaviour for every trailer, except the single Minions trailer that
+-        # reproducibly stalls its HLS audio in InputStream Adaptive.  For that
+-        # video only, use the add-on's existing local MPD/DASH path so we can
+-        # prove whether the fault is specific to YouTube's HLS audio rendition.
+-        therand_minions_dash_test = (
+-            preview and video_id == 'JgFFh6z9vEY'
+-        )
++        # Therand inline previews use the add-on's existing local MPD/DASH
++        # path. HLS reproducibly stalls the audio rendition for several
++        # trailers (Minions, Mutiny, Insidious, Obsession), while the targeted
++        # Minions DASH test played correctly. Keep normal YouTube playback
++        # untouched and force DASH only when therand_preview=true.
++        therand_preview_dash = preview
+         use_mpd = (
+             ((not preview
+               and (not is_external or settings.alternative_player_mpd())
+               and settings.use_mpd_videos())
+-             or therand_minions_dash_test)
++             or therand_preview_dash)
+             and context.ipc_exec(SERVER_WAKEUP, timeout=5)
+         )
