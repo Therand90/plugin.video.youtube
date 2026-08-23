@@ -1,0 +1,104 @@
+--- 1.0.4/addon.xml
++++ 1.0.8/addon.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+-<addon id="plugin.video.youtube" name="YouTube" version="7.4.4+therand.1.0.4" provider-name="anxdpanic, bromix, MoojMidge, Therand90">
++<addon id="plugin.video.youtube" name="YouTube" version="7.4.4+therand.1.0.8" provider-name="anxdpanic, bromix, MoojMidge, Therand90">
+     <requires>
+         <import addon="xbmc.python" version="3.0.0"/>
+         <import addon="script.module.requests" version="2.27.1"/>
+--- 1.0.4/resources/lib/youtube_plugin/kodion/abstract_provider.py
++++ 1.0.8/resources/lib/youtube_plugin/kodion/abstract_provider.py
+@@ -16,7 +16,7 @@
+ )
+ 
+ from . import logging
+-from .compatibility import string_type
++from .compatibility import string_type, xbmc, xbmcgui
+ from .constants import (
+     CHECK_SETTINGS,
+     CONTENT,
+@@ -280,6 +280,34 @@
+ 
+     def reroute(self, context, path=None, params=None, uri=None):
+         ui = context.get_ui()
++
++        # Therand inline previews own Home only.  While such a preview session
++        # exists, leaving Home (Settings, another window, etc.) must never let
++        # YouTube's generic window-cache reroute machinery activate Videos/
++        # MyVideoNav and replace the user's destination with e.g.
++        # /special/my_subscriptions.
++        #
++        # This is intentionally scoped to the Home property published by
++        # service.therand.autotrailer; ordinary YouTube navigation is untouched.
++        try:
++            therand_preview_session = (
++                xbmcgui.Window(10000)
++                .getProperty('TherandInset.Session')
++                .strip()
++                .lower()
++            )
++        except Exception:
++            therand_preview_session = ''
++
++        if (
++            therand_preview_session in ('1', 'true', 'yes')
++            and not xbmc.getCondVisibility('Window.IsActive(Home)')
++        ):
++            self.log.debug(
++                'Therand preview session outside Home - suppressing YouTube reroute'
++            )
++            return False, {self.FALLBACK: False}
++
+         current_path, current_params = context.parse_uri(
+             ui.get_container_info(FOLDER_URI, container_id=None)
+         )
+--- 1.0.4/resources/lib/youtube_plugin/youtube/helper/yt_play.py
++++ 1.0.8/resources/lib/youtube_plugin/youtube/helper/yt_play.py
+@@ -51,6 +51,17 @@
+ from ...kodion.utils.redact import redact_params
+ 
+ 
++
++def _therand_preview_home_active():
++    """Preview-only boundary: never resolve an inline preview outside Home."""
++    try:
++        return bool(xbmc.getCondVisibility('Window.IsActive(Home)'))
++    except Exception:
++        # Fail closed only for Therand preview mode. Normal YouTube playback
++        # never calls this helper.
++        return False
++
++
+ def _play_stream(provider, context):
+     ui = context.get_ui()
+     params = context.get_params()
+@@ -68,6 +79,13 @@
+     screensaver = params.get(SCREENSAVER, False)
+     if preview:
+         logging.debug('Therand preview mode')
++        if not _therand_preview_home_active():
++            logging.debug('Therand preview cancelled before resolve: Home is not active; no fallback')
++            return False, {
++                provider.FALLBACK: False,
++                provider.UPDATE_LISTING: False,
++                provider.CACHE_TO_DISC: False,
++            }
+ 
+     audio_only = False
+     is_external = (
+@@ -203,6 +221,14 @@
+     play_count = use_local_history and media_item.get_play_count() or 0
+     playback_stats = stream.get('playback_stats')
+ 
++    if preview and not _therand_preview_home_active():
++        logging.debug('Therand preview cancelled after resolve: Home is not active; no fallback')
++        return False, {
++            provider.FALLBACK: False,
++            provider.UPDATE_LISTING: False,
++            provider.CACHE_TO_DISC: False,
++        }
++
+     playback_data = {
+         VIDEO_ID: video_id,
+         CHANNEL_ID: metadata.get('channel', {}).get('id', ''),
