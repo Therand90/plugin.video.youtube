@@ -17,7 +17,13 @@ from collections import defaultdict
 from ..helper import utils, v3
 from ..youtube_exceptions import YouTubeException
 from ...kodion import logging
-from ...kodion.compatibility import string_type, urlencode, urlunsplit, xbmc
+from ...kodion.compatibility import (
+    string_type,
+    urlencode,
+    urlunsplit,
+    xbmc,
+    xbmcgui,
+)
 from ...kodion.constants import (
     BUSY_FLAG,
     CHANNEL_ID,
@@ -40,6 +46,8 @@ from ...kodion.constants import (
     PLAY_USING,
     SCREENSAVER,
     SERVER_WAKEUP,
+    THERAND_PREVIEW,
+    THERAND_TOKEN,
     TRAKT_PAUSE_FLAG,
     VIDEO_ID,
     VIDEO_IDS,
@@ -50,43 +58,76 @@ from ...kodion.utils.datetime import datetime_to_since
 from ...kodion.utils.redact import redact_params
 
 
+_THERAND_HOME_ID = 10000
+_THERAND_RESOLVER_PROPERTIES = {
+    'started': 'TherandInset.ResolverStarted',
+    'resolved': 'TherandInset.ResolverResolved',
+    'failed': 'TherandInset.ResolverFailed',
+}
+
+
+def _therand_resolver_signal(token, state):
+    if not token:
+        return
+    try:
+        xbmcgui.Window(_THERAND_HOME_ID).setProperty(
+            _THERAND_RESOLVER_PROPERTIES[state], token
+        )
+    except Exception:
+        logging.exception('Failed to publish Therand resolver state')
+
+
 def _play_stream(provider, context):
     ui = context.get_ui()
     params = context.get_params()
+    preview = params.get(THERAND_PREVIEW, False)
+    resolver_token = params.get(THERAND_TOKEN, '') if preview else ''
+    if preview:
+        _therand_resolver_signal(resolver_token, 'started')
+
     video_id = params.get(VIDEO_ID)
     if not video_id:
-        ui.show_notification(context.localize('error.no_streams_found'))
+        if preview:
+            _therand_resolver_signal(resolver_token, 'failed')
+        else:
+            ui.show_notification(context.localize('error.no_streams_found'))
         logging.error('No video_id provided')
         return False
 
     client = provider.get_client(context)
     settings = context.get_settings()
 
-    incognito = params.get(INCOGNITO, False)
+    incognito = params.get(INCOGNITO, False) or preview
     screensaver = params.get(SCREENSAVER, False)
+    if preview:
+        logging.debug('Therand preview mode: strict progressive playback')
 
     audio_only = False
-    is_external = ui.get_property(PLAY_USING, as_bool=True)
-    if ((is_external and settings.alternative_player_web_urls())
-            or settings.default_player_web_urls()):
+    is_external = (
+        not preview and ui.get_property(PLAY_USING, as_bool=True)
+    )
+    if (not preview
+            and ((is_external and settings.alternative_player_web_urls())
+                 or settings.default_player_web_urls())):
         stream = {
             'url': 'https://youtu.be/{0}'.format(video_id),
         }
         yt_item = None
     else:
         ask_for_quality = ui.pop_property(PLAY_PROMPT_QUALITY, as_bool=True)
-        if screensaver:
+        if screensaver or preview:
             ask_for_quality = False
         elif ask_for_quality is None:
             ask_for_quality = settings.ask_for_video_quality()
 
         audio_only = ui.pop_property(PLAY_FORCE_AUDIO, as_bool=True)
-        if screensaver:
+        if screensaver or preview:
             audio_only = False
         elif audio_only is None:
             audio_only = not ask_for_quality and settings.audio_only()
 
-        use_mpd = ((not is_external or settings.alternative_player_mpd())
+        use_mpd = (not preview
+                   and (not is_external or settings.alternative_player_mpd())
                    and settings.use_mpd_videos()
                    and context.ipc_exec(SERVER_WAKEUP, timeout=5))
 
@@ -100,8 +141,11 @@ def _play_stream(provider, context):
             )
         except YouTubeException as exc:
             logging.exception('Error')
-            ui.show_notification(message=exc.get_message())
-            if settings.default_player_fallback():
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
+            else:
+                ui.show_notification(message=exc.get_message())
+            if not preview and settings.default_player_fallback():
                 return False, {
                     provider.FALLBACK: context.create_uri(
                         PATHS.PLAY,
@@ -117,7 +161,10 @@ def _play_stream(provider, context):
             return False
 
         if not streams:
-            ui.show_notification(context.localize('error.no_streams_found'))
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
+            else:
+                ui.show_notification(context.localize('error.no_streams_found'))
             logging.error('No streams found')
             return False
 
@@ -127,24 +174,40 @@ def _play_stream(provider, context):
             ask_for_quality=ask_for_quality,
             audio_only=audio_only,
             use_mpd=use_mpd,
+            direct_muxed=preview,
         )
         if stream is None:
+            if preview:
+                _therand_resolver_signal(resolver_token, 'failed')
             return False
 
     video_type = stream.get('video')
     if video_type and video_type.get('rtmpe'):
-        ui.show_notification(context.localize('error.rtmpe_not_supported'))
+        if preview:
+            _therand_resolver_signal(resolver_token, 'failed')
+        else:
+            ui.show_notification(context.localize('error.rtmpe_not_supported'))
         logging.error('RTMPE streams are not supported')
         return False
 
-    if not screensaver and settings.get_bool(settings.PLAY_SUGGESTED):
+    if (not (screensaver or preview)
+            and settings.get_bool(settings.PLAY_SUGGESTED)):
         utils.add_related_video_to_playlist(provider,
                                             context,
                                             client,
                                             v3,
                                             video_id)
 
-    metadata = stream.get('meta', {})
+    if preview:
+        # Tiny inline previews do not need subtitle discovery. In particular,
+        # timedtext 429 responses can stall InputStream long after navigation.
+        stream = dict(stream)
+        metadata = dict(stream.get('meta') or {})
+        metadata.pop('subtitles', None)
+        stream['meta'] = metadata
+    else:
+        metadata = stream.get('meta', {})
+
     if is_external:
         url = urlunsplit((
             'http',
@@ -161,7 +224,9 @@ def _play_stream(provider, context):
         video_id=video_id,
     )
 
-    use_history = not (screensaver or incognito or stream.get('live'))
+    use_history = not (
+        screensaver or incognito or preview or stream.get('live')
+    )
     use_remote_history = use_history and settings.use_remote_history()
     use_local_history = use_history and settings.use_local_history()
 
@@ -196,7 +261,8 @@ def _play_stream(provider, context):
         'start_time': start_time,
         'end_time': end_time,
         'clip': params.get('clip', False),
-        'refresh_only': screensaver
+        THERAND_PREVIEW: preview,
+        'refresh_only': screensaver or preview
     }
 
     ui.set_property(PLAYER_DATA,
@@ -205,6 +271,8 @@ def _play_stream(provider, context):
                     log_redact=True)
     ui.set_property(TRAKT_PAUSE_FLAG, raw=True)
     context.send_notification(PLAYBACK_INIT, playback_data)
+    if preview:
+        _therand_resolver_signal(resolver_token, 'resolved')
     return media_item
 
 
@@ -337,7 +405,8 @@ def _select_stream(context,
                    stream_data_list,
                    ask_for_quality,
                    audio_only,
-                   use_mpd=True):
+                   use_mpd=True,
+                   direct_muxed=False):
     settings = context.get_settings()
     if settings.use_isa():
         isa_capabilities = context.inputstream_adaptive_capabilities()
@@ -353,6 +422,17 @@ def _select_stream(context,
         logging.debug('Audio only')
         stream_list = [item for item in stream_data_list
                        if 'video' not in item]
+    elif direct_muxed:
+        # The preview contract is intentionally strict: select one progressive
+        # URL containing both tracks. Do not silently fall back to adaptive HLS,
+        # whose manifest/proxy hand-off caused late audio and stalled streams.
+        logging.debug('Direct muxed streams only')
+        stream_list = [
+            item for item in stream_data_list
+            if (not item.get('adaptive')
+                and item.get('video')
+                and item.get('audio'))
+        ]
     else:
         stream_list = [
             item for item in stream_data_list
