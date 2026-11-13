@@ -869,7 +869,9 @@ class YouTubePlayerClient(YouTubeDataClient):
                 'android_testsuite_params',
             )),
             ('auth_enabled|no_kids|av1|vp9.2|avc1|surround_sound', (
-                'android_vr',
+                # ANDROID_VR is excluded: its video range requests can return HTTP 403
+                # while audio continues, freezing playback (YouTube issue #1483).
+                # 'android_vr',
             )),
             ('mpd', (
             )),

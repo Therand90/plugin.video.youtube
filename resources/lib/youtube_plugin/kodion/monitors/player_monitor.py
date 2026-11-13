@@ -23,6 +23,7 @@ from ..constants import (
     PLAYER_DATA,
     PLAY_USING,
     REFRESH_CONTAINER,
+    THERAND_PREVIEW,
     TRAKT_PAUSE_FLAG,
     VIDEO_ID,
 )
@@ -74,6 +75,7 @@ class PlayerMonitorThread(object):
         use_remote_history = self.player_data.get('use_remote_history', False)
         use_local_history = self.player_data.get('use_local_history', False)
         playback_stats = self.player_data.get('playback_stats', {})
+        preview = self.player_data.get(THERAND_PREVIEW, False)
         refresh_only = self.player_data.get('refresh_only', False)
         clip = self.player_data.get('clip', False)
 
@@ -342,7 +344,8 @@ class PlayerMonitorThread(object):
                     new_rating=new_rating,
                 )
 
-        if settings.get_bool(settings.PLAY_REFRESH):
+        if (not preview
+                and settings.get_bool(settings.PLAY_REFRESH)):
             context.send_notification(REFRESH_CONTAINER)
 
         self.end()

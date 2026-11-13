@@ -1,3 +1,18 @@
+## v7.4.4+therand.3
+### Fixed
+- Enforce progressive muxed streams for Therand AutoTrailer previews
+- Skip preview subtitles to avoid timedtext throttling and startup stalls
+
+## v7.4.4+therand.2
+### Changed
+- Add a per-launch resolver handshake for Therand AutoTrailer previews
+- Suppress preview-only error popups and report failures to AutoTrailer
+
+## v7.4.4+therand.1
+### Changed
+- Add an isolated direct-playback mode for Therand AutoTrailer previews
+- Keep preview playback out of history, suggestions and container refreshes
+
 ## v7.4.4
 ### Fixed
 - Fix not including FolderPath in current container details #1467
